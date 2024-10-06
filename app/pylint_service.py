@@ -52,6 +52,24 @@ class EnvironmentVariableError(Exception):
         self.message = message
         super().__init__(self.message)
 
+# Custom exception for Pylint execution errors
+class PylintExecutionError(Exception):
+    """
+    Raised when there is an error executing Pylint.
+    """
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(self.message)
+
+# Custom exception for client connection errors
+class ClientConnectionError(Exception):
+    """
+    Raised when there is an error handling the client connection.
+    """
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(self.message)
+
 # class StatusEnvironmentVariable is a outgoing from check_vars_environment
 class StatusEnvironmentVariable(NamedTuple):
     """
@@ -94,16 +112,15 @@ def check_vars_environment() -> StatusEnvironmentVariable:
         return StatusEnvironmentVariable(status=True, PORT=int(port), IP_ADDRESS=ip_address)
 
     except (EnvironmentVariableError, ValueError) as error:
-        logging.warning(f'Error at check_vars_environment {error}')
+        logging.warning('Error at check_vars_environment %s', error)
         return StatusEnvironmentVariable(status=False, PORT=5634, IP_ADDRESS='0.0.0.0')
 
 # run_pylint
-def run_pylint(file_name: str, file_content: str) -> str:
+def run_pylint(file_content: str) -> str:
     """
     Runs Pylint on a temporary file with the provided content.
 
     Args:
-        file_name (str): Name of the file to be analyzed.
         file_content (str): Content of the file to be analyzed.
 
     Returns:
@@ -124,13 +141,13 @@ def run_pylint(file_name: str, file_content: str) -> str:
 
         # Check if pylint encountered any errors
         if result.returncode != 0:
-            logging.error(f"Error running pylint: {result.stderr}")
+            logging.error("Error running pylint: %s", result.stderr)
             return result.stderr
 
         # Return Pylint's output (plain text)
         return result.stdout
     except Exception as error:
-        logging.error(f"Error running Pylint: {error}")
+        logging.error("Error running Pylint: $%s", error)
         return f"Error running Pylint: {error}"
     finally:
         # Delete the temporary file if it was created
@@ -147,7 +164,7 @@ def handle_client(client_socket, addr) -> None:
         addr (tuple): Client address.
     """
     try:
-        logging.info(f"Connection from {addr}")
+        logging.info('Connection from %s' ,addr)
 
         # Receive the file name and content from the client
         file_name = client_socket.recv(1024).decode().strip()
@@ -158,15 +175,15 @@ def handle_client(client_socket, addr) -> None:
                 break
             file_content += data.decode()
 
-        logging.info(f"Running Pylint on file {file_name}")
+        logging.info('Running Pylint on file %s', file_name)
 
         # Run Pylint on the received file
-        pylint_output = run_pylint(file_name, file_content)
+        pylint_output = run_pylint(file_content)
 
         # Send Pylint's output back to the client (plain text)
         client_socket.sendall(pylint_output.encode())
     except Exception as error:
-        logging.error(f"Error handling connection: {error}")
+        logging.error('Error handling connection : %s', error)
         client_socket.sendall(f"Server error: {error}".encode())
     finally:
         client_socket.close()

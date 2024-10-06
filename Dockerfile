@@ -1,8 +1,5 @@
 # Usa la imagen base de Debian 12 slim
-FROM debian:12-slim
-
-# Establece el entorno para que no haya prompts interactivos
-ENV DEBIAN_FRONTEND=noninteractive
+FROM python:3-bookworm
 
 # Variables de entorno para el IP y el puerto
 ENV IP_ADDRESS=0.0.0.0
