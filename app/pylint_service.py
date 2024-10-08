@@ -8,7 +8,7 @@ and execute Pylint on them. The result is sent back to the client.
 
 Environment variables:
     IP_ADDRESS: the server's IP address (default 0.0.0.0)
-    PORT: the server's port (default 5634)
+    PORT: the server's port (default 5000)
 
 Functions:
     run_pylint(file_name, file_content):
@@ -37,8 +37,12 @@ load_dotenv('config.env')
 # Configure the logger
 # Parameters for logging
 parameters = {
+    """
+    lineno is a number line error
+    """
+
     'level' : logging.INFO,
-    'format' : '%(asctime)s - %(levelname)s - %(message)s',
+    'format' : '%(asctime)s - %(levelname)s - %(funcName)s - %(lineno)d - %(message)s',
     'filename' : 'pylint_service.log'
 }
 logging.basicConfig(**parameters)
@@ -47,24 +51,6 @@ logging.basicConfig(**parameters)
 class EnvironmentVariableError(Exception):
     """
     Raised when an environment variable is not set or has an invalid value.
-    """
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(self.message)
-
-# Custom exception for Pylint execution errors
-class PylintExecutionError(Exception):
-    """
-    Raised when there is an error executing Pylint.
-    """
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(self.message)
-
-# Custom exception for client connection errors
-class ClientConnectionError(Exception):
-    """
-    Raised when there is an error handling the client connection.
     """
     def __init__(self, message: str) -> None:
         self.message = message
@@ -95,7 +81,7 @@ def check_vars_environment() -> StatusEnvironmentVariable:
     Check Vars Environment from config.env
     Default Vars:
         IP_ADDRESS=0.0.0.0
-        PORT=5634
+        PORT=5000
     Args:
         IP_ADDRESS (str): The IP address environment variable.
         PORT (int): The port number environment variable.
@@ -112,8 +98,8 @@ def check_vars_environment() -> StatusEnvironmentVariable:
         return StatusEnvironmentVariable(status=True, PORT=int(port), IP_ADDRESS=ip_address)
 
     except (EnvironmentVariableError, ValueError) as error:
-        logging.warning('Error at check_vars_environment %s', error)
-        return StatusEnvironmentVariable(status=False, PORT=5634, IP_ADDRESS='0.0.0.0')
+        logging.warning('Error at check_vars_environment %s', error, exc_info=True)
+        return StatusEnvironmentVariable(status=False, PORT=5000, IP_ADDRESS='0.0.0.0')
 
 # run_pylint
 def run_pylint(file_content: str) -> str:
@@ -146,8 +132,8 @@ def run_pylint(file_content: str) -> str:
 
         # Return Pylint's output (plain text)
         return result.stdout
-    except Exception as error:
-        logging.error("Error running Pylint: $%s", error)
+    except subprocess.CalledProcessError as error:
+        logging.error("Error running Pylint: $%s", error, exc_info=True)
         return f"Error running Pylint: {error}"
     finally:
         # Delete the temporary file if it was created
@@ -155,7 +141,7 @@ def run_pylint(file_content: str) -> str:
             os.remove(temp_file_path)
 
 # handle_client
-def handle_client(client_socket, addr) -> None:
+def handle_client(client_socket, addr, buffer_size=4096) -> None:
     """
     Handles a client's connection, receives the file, and runs Pylint.
 
@@ -167,7 +153,7 @@ def handle_client(client_socket, addr) -> None:
         logging.info('Connection from %s' ,addr)
 
         # Receive the file name and content from the client
-        file_name = client_socket.recv(1024).decode().strip()
+        file_name = client_socket.recv(buffer_size).decode().strip()
         file_content = ""
         while True:
             data = client_socket.recv(1024)
@@ -182,13 +168,14 @@ def handle_client(client_socket, addr) -> None:
 
         # Send Pylint's output back to the client (plain text)
         client_socket.sendall(pylint_output.encode())
-    except Exception as error:
-        logging.error('Error handling connection : %s', error)
+    except socket.error as error:
+        logging.error('Error handling connection : %s', error, exc_info=True)
         client_socket.sendall(f"Server error: {error}".encode())
     finally:
         client_socket.close()
         logging.info("Connection closed.")
 
+# start_server
 def start_server() -> None:
     """
     Starts the server and begins listening for incoming connections.
