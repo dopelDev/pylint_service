@@ -1,25 +1,30 @@
 # ../app/pylint_service.py
 # This script contains the logic for the listen service using sockets
 """
-Service that runs Pylint on Python files and returns the result.
+Service that runs Pylint on Python code and returns the result.
 
-This script uses sockets to listen for incoming connections, receive Python files and their content,
-and execute Pylint on them. The result is sent back to the client.
+This script sets up a server that listens for incoming connections using sockets.
+When a client connects and sends Python code (ending with a specified delimiter), the server
+runs Pylint on the received code and sends back the analysis results to the client.
 
 Environment variables:
-    IP_ADDRESS: the server's IP address (default 0.0.0.0)
-    PORT: the server's port (default 5000)
+    IP_ADDRESS: The server's IP address to bind to (default '0.0.0.0')
+    PORT: The server's port to listen on (default 5000)
 
 Functions:
-    run_pylint(file_name, file_content):
-    Runs Pylint on a temporary file with the provided content
-        and returns Pylint's standard output as plain text.
-    start_server(): starts the server and begins listening for incoming connections.
+    check_vars_environment():
+        Checks and retrieves the IP_ADDRESS and PORT from the environment variables.
+    run_pylint(file_content):
+        Runs Pylint on the given Python code and returns the output.
+    handle_client(client_socket, addr):
+        Handles a client's connection, receives code, runs Pylint, and sends back the result.
+    start_server():
+        Starts the server and begins listening for incoming connections.
 
 Usage:
     - Run this script to start the server.
-    - Send a request to the server with the file name
-        and its content to execute Pylint on it.
+    - Connect to the server and send Python code (ending with '<<EOF>>') to be analyzed by Pylint.
+    - Receive the Pylint analysis results from the server.
 """
 
 import socket
@@ -75,15 +80,13 @@ class StatusEnvironmentVariable(NamedTuple):
 # check_vars_environment
 def check_vars_environment() -> StatusEnvironmentVariable:
     """
-    Check Vars Environment from config.env
-    Default Vars:
-        IP_ADDRESS=0.0.0.0
-        PORT=5000
-    Args:
-        IP_ADDRESS (str): The IP address environment variable.
-        PORT (int): The port number environment variable.
+    Checks and validates the IP_ADDRESS and PORT environment variables.
+
+    If the variables are missing or invalid, default values are used.
+
     Returns:
-        bool: Whether the environment variables are set and valid.
+        StatusEnvironmentVariable: An object containing the status, PORT,
+            and IP_ADDRESS.
     """
     try:
         ip_address = os.getenv('IP_ADDRESS')
@@ -138,34 +141,42 @@ def run_pylint(file_content: str) -> str:
             os.remove(temp_file_path)
 
 # handle_client
-def handle_client(client_socket, addr, buffer_size=4096) -> None:
+def handle_client(client_socket, addr) -> None:
     """
-    Handles a client's connection, receives the file, and runs Pylint.
+    Handles a client's connection, receives Python code, runs Pylint,
+    and sends back the result.
+
+    Receives data from the client until the specified delimiter ('<<EOF>>')
+    is encountered. Runs Pylint on the received code and sends the output
+    back to the client.
 
     Args:
-        client_socket (socket): Client socket.
-        addr (tuple): Client address.
+        client_socket (socket.socket): The socket object representing the
+            client connection.
+        addr (tuple): The address of the connected client.
     """
     try:
         logging.info('Connection from %s' ,addr)
 
+        delimiter = '<<EOF>>'
+        buffer = ''
+
         # Receive the file name and content from the client
-        file_name = client_socket.recv(buffer_size).decode().strip()
-        file_content = ""
-        while True:
-            data = client_socket.recv(1024)
+        while delimiter not in buffer:
+            data =  client_socket.recv(4096).decode('utf-8')
             if not data:
                 break
-            file_content += data.decode()
+            buffer += data
 
+        # clean delimiter
+        file_content = buffer.replace(delimiter, '')
+        # run_pylint call
+        pylint_output = run_pylint(file_content)
         # Send a message to client
         client_socket.sendall(b"Analyzing file... ")
-
-        logging.info('Running Pylint on file %s', file_name)
-
+        logging.info('Running Pylint on file %s')
         # Run Pylint on the received file
         pylint_output = run_pylint(file_content)
-
         # Send Pylint's output back to the client (plain text)
         client_socket.sendall(pylint_output.encode())
     except socket.error as error:
