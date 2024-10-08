@@ -36,13 +36,10 @@ load_dotenv('config.env')
 
 # Configure the logger
 # Parameters for logging
+FORMAT_STR= '%(asctime)s - %(levelname)s - %(funcName)s - %(lineno)d - %(message)s'
 parameters = {
-    """
-    lineno is a number line error
-    """
-
     'level' : logging.INFO,
-    'format' : '%(asctime)s - %(levelname)s - %(funcName)s - %(lineno)d - %(message)s',
+    'format' : FORMAT_STR,
     'filename' : 'pylint_service.log'
 }
 logging.basicConfig(**parameters)
@@ -122,7 +119,7 @@ def run_pylint(file_content: str) -> str:
         # Run pylint on the temporary file and capture the standard output
         result = subprocess.run(
             ["pylint", temp_file_path],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True
         )
 
         # Check if pylint encountered any errors
@@ -133,7 +130,7 @@ def run_pylint(file_content: str) -> str:
         # Return Pylint's output (plain text)
         return result.stdout
     except subprocess.CalledProcessError as error:
-        logging.error("Error running Pylint: $%s", error, exc_info=True)
+        logging.error("Error running Pylint: %s", error, exc_info=True)
         return f"Error running Pylint: {error}"
     finally:
         # Delete the temporary file if it was created
@@ -160,6 +157,9 @@ def handle_client(client_socket, addr, buffer_size=4096) -> None:
             if not data:
                 break
             file_content += data.decode()
+
+        # Send a message to client
+        client_socket.sendall(b"Analyzing file... ")
 
         logging.info('Running Pylint on file %s', file_name)
 
