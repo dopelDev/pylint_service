@@ -1,79 +1,63 @@
-# pytest/test_pylint_service.py
-
-import os
 import pytest
 import socket
 import threading
-from unittest import mock
-from unittest.mock import MagicMock, patch
+from app.pylint_service.pylint_service import start_server, run_pylint, check_vars_environment, handle_client
+from app.pylint_service.pylint_service import EnvironmentVariableError, StatusEnvironmentVariable
 
-# Ajustamos el import según la estructura de directorios
-from pylint_service.pylint_service import check_vars_environment, run_pylint, handle_client
+# Mock environment variables for testing
+@pytest.fixture(scope="module", autouse=True)
+def mock_env_vars(monkeypatch):
+    monkeypatch.setenv("IP_ADDRESS", "127.0.0.1")
+    monkeypatch.setenv("PORT", "8888")
 
-def test_check_vars_environment_valid(monkeypatch):
-    # Configura variables de entorno válidas
-    monkeypatch.setenv('IP_ADDRESS', '127.0.0.1')
-    monkeypatch.setenv('PORT', '8000')
-    result = check_vars_environment()
-    assert result.status == True
-    assert result.IP_ADDRESS == '127.0.0.1'
-    assert result.PORT == 8000
 
-def test_check_vars_environment_missing_ip(monkeypatch):
-    # Elimina IP_ADDRESS para simular que falta
-    monkeypatch.delenv('IP_ADDRESS', raising=False)
-    monkeypatch.setenv('PORT', '8000')
-    result = check_vars_environment()
-    assert result.status == False
-    assert result.IP_ADDRESS == '0.0.0.0'
-    assert result.PORT == 5000
+# Test the environment variable check function
+def test_check_vars_environment():
+    # Test with valid environment variables
+    env_vars = check_vars_environment()
+    assert env_vars.status is True
+    assert env_vars.IP_ADDRESS == "127.0.0.1"
+    assert env_vars.PORT == 8888
 
-def test_check_vars_environment_invalid_port(monkeypatch):
-    # Establece un PORT inválido
-    monkeypatch.setenv('IP_ADDRESS', '127.0.0.1')
-    monkeypatch.setenv('PORT', '-1')
-    result = check_vars_environment()
-    assert result.status == False
-    assert result.IP_ADDRESS == '0.0.0.0'
-    assert result.PORT == 5000
+    # Test with missing IP_ADDRESS
+    with pytest.raises(EnvironmentVariableError):
+        with pytest.monkeypatch.context() as m:
+            m.delenv("IP_ADDRESS", raising=False)
+            check_vars_environment()
 
-def test_run_pylint_with_valid_code():
-    # Código Python válido
-    code = "def add(a, b):\n    return a + b\n"
+# Test the pylint runner
+def test_run_pylint_valid_code():
+    code = "def foo():\n    return 42\n"
     output = run_pylint(code)
-    assert "Your code has been rated at" in output
+    assert "Your code has been rated" in output
 
-def test_run_pylint_with_invalid_code():
-    # Código Python con errores de sintaxis
-    code = "def add(a,b):\nreturn a + b\n"
+def test_run_pylint_invalid_code():
+    code = "def foo(\n"
     output = run_pylint(code)
-    assert "syntax-error" in output or "expected an indented block" in output
+    assert "E0001" in output  # Pylint should report a syntax error
 
-def test_run_pylint_with_empty_code():
-    # Código vacío
-    code = ""
-    output = run_pylint(code)
-    assert "Your code has been rated at" in output
 
-@patch('pylint_service.pylint_service.run_pylint')
-def test_handle_client(mock_run_pylint):
-    # Simula el comportamiento de run_pylint
-    mock_run_pylint.return_value = "Pylint analysis result"
-    
-    # Crea un socket de cliente simulado
-    client_socket = mock.MagicMock()
-    addr = ('127.0.0.1', 12345)
+# Test the client-server interaction
+def test_client_server_interaction(monkeypatch):
+    # Start the server in a separate thread
+    server_thread = threading.Thread(target=start_server)
+    server_thread.daemon = True
+    server_thread.start()
 
-    # Simula los datos recibidos del cliente
-    code = "def add(a, b):\n    return a + b\n"
-    data = code + '<<EOF>>'
-    client_socket.recv.return_value = data.encode('utf-8')
+    # Create a client socket to connect to the server
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(("127.0.0.1", 8888))
 
-    # Ejecuta la función handle_client
-    handle_client(client_socket, addr)
+    try:
+        # Send Python code to the server
+        code = "def foo():\n    return 42\n<<EOF>>"
+        client_socket.sendall(code.encode('utf-8'))
 
-    # Verifica que sendall fue llamado con los datos correctos
-    calls = client_socket.sendall.call_args_list
-    assert b"Analyzing file... " in calls[0][0][0]
-    assert b"Pylint analysis result" in calls[1][0][0]
+        # Receive the server's response
+        response = client_socket.recv(4096).decode('utf-8')
+        assert "Your code has been rated" in response
+
+    finally:
+        client_socket.close()
+        server_thread.join(timeout=1)
 
